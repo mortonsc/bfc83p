@@ -34,8 +34,7 @@ const uint8_t header[] =
         0x79,             /*ld a,c */
         0xB7,             /*or a */
         0x20, 0xF4,       /*jr nz,ZeroLoop */
-        0x21, 0x72, 0x98, /* ld hl,#appBackUpScreen */
-        0
+        0x21, 0x72, 0x98 /* ld hl,#appBackUpScreen */
     };
 
 uint8_t *src;
@@ -46,7 +45,8 @@ uint8_t *dst;
 uint8_t *exec;
 
 __at APP_BACKUP_SCREEN uint8_t *stack[BUFFER_SIZE / sizeof(uint8_t*)];
-uint8_t **stack_ptr = stack;
+/* uint8_t **stack_ptr = stack; */
+uint8_t **stack_ptr;
 
 int main()
 {
@@ -63,45 +63,42 @@ int main()
     }
 
     dst = prog_buffer;
-    memcpy(dst, header, strlen(header));
-    dst += strlen(header)+1;
+    memcpy(dst, header, sizeof(header));
+    dst += sizeof(header);
+
+    stack_ptr = stack;
 
     src_end = src + src_size;
     while (src < src_end) {
         switch(*src) {
-        case '+':
         case tAdd:
             APPEND_DST(INC_AT_HL);
             break;
-        case '-':
         case tSub:
             APPEND_DST(DEC_AT_HL);
             break;
-        case '>':
         case tGT:
+        case tRBrace:
             APPEND_DST(INC_HL);
             break;
-        case '<':
         case tLT:
+        case tLBrace:
             APPEND_DST(DEC_HL);
             break;
-        case '[':
         case tLBrack:
             *(stack_ptr++) = dst;
             APPEND_DST(LD_A_HL);
             APPEND_DST(OR_A);
-            APPEND_DST(JR_Z);
+            APPEND_DST(JR_Z); /* ret z */
             APPEND_DST(0x00); /* will be filled in with the jump dist */
             break;
-        case ']':
         case tRBrack:
             open = *(--stack_ptr);
             dist = dst - open;
             APPEND_DST(JR);
-            APPEND_DST(-dist); /* jump back to start of loop */
-            *(open + 3) = dist; /* jump to just past the ] */
+            APPEND_DST(-(dist+2)); /* jump back to start of loop */
+            *(open + 3) = dist - 2; /* jump to just past the ] */
             break;
-        case '.':
         case tDecPt:
             APPEND_DST(LD_A_HL);
             APPEND_DST(BCALL);
