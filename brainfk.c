@@ -1,6 +1,9 @@
 #include <string.h>
 #include "lib/c_ti83p.h"
 
+#define LD_HL 0x21
+#define APP_BACKUP_SCREEN_1 0x72
+#define APP_BACKUP_SCREEN_2 0x98
 #define INC_HL 0x23
 #define DEC_HL 0x2B
 #define INC_AT_HL 0x34
@@ -13,6 +16,13 @@
 #define PUT_C_1 0x04
 #define PUT_C_2 0x45
 #define RET 0xC9
+
+const uint8_t header[] =
+    {
+        t2ByteTok, tasmCmp,
+        0x21, 0x72, 0x98, /* ld hl,#appBackUpScreen */
+        0
+    };
 
 uint8_t *src;
 uint8_t *src_end;
@@ -39,26 +49,31 @@ int main()
     }
 
     dst = prog_buffer;
-    *(dst++) = t2ByteTok;
-    *(dst++) = tasmCmp;
+    strcpy(dst, header);
+    dst += strlen(header) - 1;
 
 
     src_end = src + src_size;
     while (src < src_end) {
         switch(*src) {
+        case '+':
         case tAdd:
             *(dst++) = INC_AT_HL;
             break;
+        case '-':
         case tSub:
             *(dst++) = DEC_AT_HL;
             break;
         case '>':
+        case tGT:
             *(dst++) = INC_HL;
             break;
         case '<':
+        case tLT:
             *(dst++) = DEC_HL;
             break;
         case '[':
+        case tLBrack:
             *(stack_ptr++) = dst;
             *(dst++) = LD_A_HL;
             *(dst++) = OR_A;
@@ -66,11 +81,12 @@ int main()
             *(dst++) = 0x00; /* will be filled in with the jump dist */
             break;
         case ']':
+        case tRBrack:
             open = *(--stack_ptr);
+            dist = dst - open;
             *(dst++) = JR;
-            dist = open - dst;
-            *(dst++) = dist;
-            *(open + 4) = -dist + 1; /* jump to just past the ] */
+            *(dst++) = -dist;
+            *(open + 3) = dist; /* jump to just past the ] */
             break;
         case '.':
         case tDecPt:
@@ -81,13 +97,10 @@ int main()
             break;
         }
         src++;
-        CPutInt(dst - prog_buffer);
-        CNewLine();
     }
     *(dst++) = RET;
 
     size = (dst - prog_buffer);
-    CPutInt(size);
     exec = CCreateProtPrgm("BFDST", size);
     memcpy(exec, prog_buffer, size);
 
