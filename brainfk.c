@@ -1,6 +1,8 @@
 #include <string.h>
 #include "lib/c_ti83p.h"
 
+#define APPEND_DST(c) *(dst++) = (c)
+
 #define LD_HL 0x21
 #define APP_BACKUP_SCREEN_1 0x72
 #define APP_BACKUP_SCREEN_2 0x98
@@ -20,6 +22,18 @@
 const uint8_t header[] =
     {
         t2ByteTok, tasmCmp,
+        0x21, 0x72, 0x98, /* ld hl,#appBackUpScreen */
+        0x01, 0x00, 0x03, /*ld bc,#buffer_size */
+    /* ZeroLoop: */
+        0x36, 0x00,       /*ld (hl),#0          */
+        0x23,             /*inc hl */
+        0x0B,             /*dec bc */
+        0x78,             /*ld a,b */
+        0xB7,             /*or a */
+        0x20, 0xF8,       /*jr nz,ZeroLoop */
+        0x79,             /*ld a,c */
+        0xB7,             /*or a */
+        0x20, 0xF4,       /*jr nz,ZeroLoop */
         0x21, 0x72, 0x98, /* ld hl,#appBackUpScreen */
         0
     };
@@ -49,56 +63,55 @@ int main()
     }
 
     dst = prog_buffer;
-    strcpy(dst, header);
-    dst += strlen(header) - 1;
-
+    memcpy(dst, header, strlen(header));
+    dst += strlen(header)+1;
 
     src_end = src + src_size;
     while (src < src_end) {
         switch(*src) {
         case '+':
         case tAdd:
-            *(dst++) = INC_AT_HL;
+            APPEND_DST(INC_AT_HL);
             break;
         case '-':
         case tSub:
-            *(dst++) = DEC_AT_HL;
+            APPEND_DST(DEC_AT_HL);
             break;
         case '>':
         case tGT:
-            *(dst++) = INC_HL;
+            APPEND_DST(INC_HL);
             break;
         case '<':
         case tLT:
-            *(dst++) = DEC_HL;
+            APPEND_DST(DEC_HL);
             break;
         case '[':
         case tLBrack:
             *(stack_ptr++) = dst;
-            *(dst++) = LD_A_HL;
-            *(dst++) = OR_A;
-            *(dst++)= JR_Z;
-            *(dst++) = 0x00; /* will be filled in with the jump dist */
+            APPEND_DST(LD_A_HL);
+            APPEND_DST(OR_A);
+            APPEND_DST(JR_Z);
+            APPEND_DST(0x00); /* will be filled in with the jump dist */
             break;
         case ']':
         case tRBrack:
             open = *(--stack_ptr);
             dist = dst - open;
-            *(dst++) = JR;
-            *(dst++) = -dist;
+            APPEND_DST(JR);
+            APPEND_DST(-dist); /* jump back to start of loop */
             *(open + 3) = dist; /* jump to just past the ] */
             break;
         case '.':
         case tDecPt:
-            *(dst++) = LD_A_HL;
-            *(dst++) = BCALL;
-            *(dst++) = PUT_C_1;
-            *(dst++) = PUT_C_2;
+            APPEND_DST(LD_A_HL);
+            APPEND_DST(BCALL);
+            APPEND_DST(PUT_C_1);
+            APPEND_DST(PUT_C_2);
             break;
         }
         src++;
     }
-    *(dst++) = RET;
+    APPEND_DST(RET);
 
     size = (dst - prog_buffer);
     exec = CCreateProtPrgm("BFDST", size);
