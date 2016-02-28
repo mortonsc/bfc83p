@@ -84,18 +84,28 @@ void resolve_state()
         }
         break;
     case MOVING_LEFT:
-        APPEND_DST(OR_A);
-        APPEND_DST(LD_DE_NN);
-        APPEND_DST(distance_left & 0x0F);
-        APPEND_DST(distance_left >> 4);
-        APPEND_DST(EXTENDED_INSTR);
-        APPEND_DST(SBC_HL_DE);
+        if (distance_left <= 5) {
+            while (distance_left--)
+                APPEND_DST(DEC_HL);
+        } else {
+            APPEND_DST(OR_A);
+            APPEND_DST(LD_DE_NN);
+            APPEND_DST(distance_left & 0x0F);
+            APPEND_DST(distance_left >> 4);
+            APPEND_DST(EXTENDED_INSTR);
+            APPEND_DST(SBC_HL_DE);
+        }
         break;
     case MOVING_RIGHT:
-        APPEND_DST(LD_DE_NN);
-        APPEND_DST(distance_right & 0x0F); /* lower nibble */
-        APPEND_DST(distance_right >> 4); /* higher nibble */
-        APPEND_DST(ADD_HL_DE);
+        if (distance_right <= 3) {
+            while (distance_right--)
+                APPEND_DST(INC_HL);
+        } else {
+            APPEND_DST(LD_DE_NN);
+            APPEND_DST(distance_right & 0x0F); /* lower nibble */
+            APPEND_DST(distance_right >> 4); /* higher nibble */
+            APPEND_DST(ADD_HL_DE);
+        }
         break;
     }
     prog_state = NONE;
