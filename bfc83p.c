@@ -1,11 +1,11 @@
 #include <string.h>
 #include "lib/c_ti83p.h"
 
-#define APPEND_DST(c) *(dst++) = (c)
+#define APPEND_DST(c) (*(dst++) = (c))
+#define PUSH(addr) (*(stack_ptr++) = (addr))
+#define POP() (*(--stack_ptr))
 
 #define LD_HL 0x21
-#define APP_BACKUP_SCREEN_1 0x72
-#define APP_BACKUP_SCREEN_2 0x98
 #define INC_HL 0x23
 #define DEC_HL 0x2B
 #define INC_AT_HL 0x34
@@ -86,14 +86,14 @@ int main()
             APPEND_DST(DEC_HL);
             break;
         case tLBrack:
-            *(stack_ptr++) = dst;
+            PUSH(dst);
             APPEND_DST(LD_A_HL);
             APPEND_DST(OR_A);
             APPEND_DST(JR_Z); /* ret z */
             APPEND_DST(0x00); /* will be filled in with the jump dist */
             break;
         case tRBrack:
-            open = *(--stack_ptr);
+            open = POP();
             dist = dst - open;
             APPEND_DST(JR);
             APPEND_DST(-(dist+2)); /* jump back to start of loop */
