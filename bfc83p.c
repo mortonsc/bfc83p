@@ -1,6 +1,5 @@
 #include <string.h>
 #include "lib/c_ti83p.h"
-#include "safe_header.h"
 
 #define APPEND_DST(c) (*(dst++) = (c))
 #define PUSH(addr) (*(stack_ptr++) = (addr))
@@ -11,6 +10,9 @@
 #define DEC_HL 0x2B
 #define INC_AT_HL 0x34
 #define DEC_AT_HL 0x35
+#define ADD_A_N 0xC6
+#define LD_DE_NN 0x11
+#define ADD_HL_DE 0x19
 #define LD_A_HL 0x7E
 #define LD_HL_A 0x77
 #define OR_A 0xB7
@@ -49,13 +51,127 @@ uint8_t *dst;
 uint8_t *exec;
 
 __at APP_BACKUP_SCREEN uint8_t *stack[BUFFER_SIZE / sizeof(uint8_t*)];
-/* uint8_t **stack_ptr = stack; */
 uint8_t **stack_ptr;
+
+/* state variables */
+uint8_t delta = 0;
+uint16_t distance = 0;
+typedef enum {ADDING, MOVING_LEFT, MOVING_RIGHT, NONE} State;
+State prog_state = NONE;
+
+void resolve_state()
+{
+    switch (prog_state) {
+    case ADDING:
+        APPEND_DST(LD_A_HL);
+        APPEND_DST(ADD_A_N);
+        APPEND_DST(delta);
+        APPEND_DST(LD_HL_A);
+        break;
+    case MOVING_LEFT:
+    case MOVING_RIGHT:
+        APPEND_DST(LD_DE_NN);
+        APPEND_DST(distance & 0x0F); /* lower nibble */
+        APPEND_DST(distance >> 4); /* higher nibble */
+        APPEND_DST(ADD_HL_DE);
+        break;
+    }
+    prog_state = NONE;
+    delta = 0;
+    distance = 0;
+}
+
+void increment()
+{
+    if (prog_state != ADDING) {
+        resolve_state();
+        prog_state = ADDING;
+    }
+    delta++;
+}
+
+void decrement()
+{
+    if (prog_state != ADDING) {
+        resolve_state();
+        prog_state = ADDING;
+    }
+    delta--;
+}
+
+void move_left()
+{
+    if (prog_state != MOVING_LEFT && prog_state != MOVING_RIGHT) {
+        resolve_state();
+        prog_state = MOVING_LEFT;
+    }
+
+    if (prog_state == MOVING_RIGHT && distance == 0)
+        prog_state = MOVING_LEFT;
+
+        distance += (uint16_t) -1;
+}
+
+void move_right()
+{
+    if (prog_state != MOVING_LEFT && prog_state != MOVING_RIGHT) {
+        resolve_state();
+        prog_state = MOVING_RIGHT;
+    }
+
+    if (prog_state == MOVING_LEFT && distance == 0)
+        prog_state = MOVING_RIGHT;
+
+        distance++;
+}
+
+void begin_loop()
+{
+    resolve_state();
+
+    PUSH(dst);
+    APPEND_DST(LD_A_HL);
+    APPEND_DST(OR_A);
+    APPEND_DST(JR_Z); /* ret z */
+    APPEND_DST(0x00); /* will be filled in with the jump dist */
+
+}
+
+void end_loop()
+{
+    uint8_t *open = POP();
+    int8_t jp_dist = dst - open;
+
+    resolve_state();
+
+    APPEND_DST(JR);
+    APPEND_DST(-(jp_dist+2)); /* jump back to start of loop */
+    *(open + 3) = jp_dist - 2; /* jump to just past the ] */
+}
+
+void output()
+{
+    resolve_state();
+    APPEND_DST(LD_A_HL);
+    APPEND_DST(BCALL);
+    APPEND_DST(PUT_C_1);
+    APPEND_DST(PUT_C_2);
+}
+
+void input()
+{
+    /* , resets the value at this address, so discard any planned addition */
+    if (prog_state != ADDING)
+        resolve_state();
+
+    APPEND_DST(BCALL);
+    APPEND_DST(GET_KEY_1);
+    APPEND_DST(GET_KEY_2);
+    APPEND_DST(LD_HL_A);
+}
 
 int main()
 {
-    uint8_t *open;
-    int8_t dist;
     uint16_t size;
     uint16_t src_size;
 
@@ -67,63 +183,49 @@ int main()
     }
 
     dst = prog_buffer;
-    /* memcpy(dst, header, sizeof(header)); */
-    /* dst += sizeof(header); */
-
     stack_ptr = stack;
 
     src_end = src + src_size;
     while (src < src_end) {
         switch(*src) {
         case tAdd:
-            APPEND_DST(INC_AT_HL);
+            increment();
             break;
         case tSub:
-            APPEND_DST(DEC_AT_HL);
+            decrement();
             break;
         case tGT:
         case tRBrace:
-            APPEND_DST(INC_HL);
+            move_right();
             break;
         case tLT:
         case tLBrace:
-            APPEND_DST(DEC_HL);
+            move_left();
             break;
         case tLBrack:
-            PUSH(dst);
-            APPEND_DST(LD_A_HL);
-            APPEND_DST(OR_A);
-            APPEND_DST(JR_Z); /* ret z */
-            APPEND_DST(0x00); /* will be filled in with the jump dist */
+            begin_loop();
             break;
         case tRBrack:
-            open = POP();
-            dist = dst - open;
-            APPEND_DST(JR);
-            APPEND_DST(-(dist+2)); /* jump back to start of loop */
-            *(open + 3) = dist - 2; /* jump to just past the ] */
+            end_loop();
             break;
         case tDecPt:
-            APPEND_DST(LD_A_HL);
-            APPEND_DST(BCALL);
-            APPEND_DST(PUT_C_1);
-            APPEND_DST(PUT_C_2);
+            output();
             break;
         case tComma:
-            APPEND_DST(BCALL);
-            APPEND_DST(GET_KEY_1);
-            APPEND_DST(GET_KEY_2);
-            APPEND_DST(LD_HL_A);
+            input();
         }
         src++;
     }
     APPEND_DST(RET);
 
     size = (dst - prog_buffer);
-    exec = CCreateProtPrgm("BFDST", size + sizeof(safe_header));
-    memcpy(exec, safe_header, sizeof(safe_header));
-    exec += sizeof(safe_header);
+    exec = CCreateProtPrgm("BFDST", size + sizeof(header));
+    memcpy(exec, header, sizeof(header));
+    exec += sizeof(header);
     memcpy(exec, prog_buffer, size);
+
+    CPutS("compilation successful");
+    CNewLine();
 
     return 0;
 }

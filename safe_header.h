@@ -27,8 +27,8 @@ const uint8_t safe_header[] =
         0xD9,             /* exx */
         0xDB, 0x04,       /* in a,(4) */
         0xCB, 0x47,       /* bit 0,a */
-        0xCA, 0x3A, 0x00, /* jp z,sys_interrupt */
-
+        /*0xCA, 0x3A, 0x00, /* jp z,sys_interrupt */
+        0xC3, 0x3A, 0x00,
         0x08,             /* ex af, af' */
         0xD9,             /* exx */
         0xEF, 0x87, 0x4C, /* bcall _EnableAPD */
