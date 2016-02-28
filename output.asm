@@ -77,14 +77,16 @@ Start:
         ld hl,appBackUpScreen
 
         ;; compiled BF program goes here
-        inc (hl)        ; +
-        dec (hl)        ; -
-        inc hl          ; >
-        dec hl          ; <
+
 StartLoop:              ; [
         ld a,(hl)
         or a
         jr z,EndLoop
+
+        inc (hl)        ; +
+        dec (hl)        ; -
+        inc hl          ; >
+        dec hl          ; <
 
         jr StartLoop    ; ]
 EndLoop:
@@ -94,6 +96,8 @@ EndLoop:
 
         bcall(_getkey)  ; ,
         ld (hl),a
+
+        ;; end of compiled BF program
 
         im 1
         ret
