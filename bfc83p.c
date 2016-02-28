@@ -13,10 +13,9 @@
 #define ADD_A_N 0xC6
 #define LD_A_N 0x3E
 #define LD_AT_HL_NN 0x36
+#define LD_BC_NN 0x01
 #define LD_DE_NN 0x11
 #define ADD_HL_DE 0x19
-#define EXTENDED_INSTR 0xED
-#define SBC_HL_DE 0x52
 #define LD_A_HL 0x7E
 #define LD_HL_A 0x77
 #define OR_A 0xB7
@@ -28,6 +27,12 @@
 #define GET_KEY_1 0x72
 #define GET_KEY_2 0x49
 #define RET 0xC9
+
+/* extended (2-byte) opcodes */
+#define EXTENDED_INSTR 0xED
+#define SBC_HL_DE 0x52
+#define CPIR 0xB1
+#define CPDR 0xB9
 
 const uint8_t header[] =
     {
@@ -234,6 +239,34 @@ void clear()
     delta = 0;
 }
 
+void scan_left()
+{
+    resolve_state();
+
+    APPEND_DST(LD_BC_NN);
+    APPEND_DST(0x00);
+    APPEND_DST(0x00);
+    APPEND_DST(LD_A_N);
+    APPEND_DST(0x00);
+    APPEND_DST(EXTENDED_INSTR);
+    APPEND_DST(CPDR);
+    APPEND_DST(INC_HL);
+}
+
+void scan_right()
+{
+    resolve_state();
+
+    APPEND_DST(LD_BC_NN);
+    APPEND_DST(0x00);
+    APPEND_DST(0x00);
+    APPEND_DST(LD_A_N);
+    APPEND_DST(0x00);
+    APPEND_DST(EXTENDED_INSTR);
+    APPEND_DST(CPIR);
+    APPEND_DST(DEC_HL);
+}
+
 int main()
 {
     uint16_t size;
@@ -267,8 +300,17 @@ int main()
             move_left();
             break;
         case tLBrack:
-            if ((*(src+1) == tSub || *(src+1) == tAdd) && *(src+2) == tRBrack) {
+            if ((*(src+1) == tSub || *(src+1) == tAdd)
+                    && *(src+2) == tRBrack) {
                 clear();
+                src += 2;
+            } else if ((*(src+1) == tGT || *(src+1) == tRBrace)
+                    && *(src+2) == tRBrack) {
+                scan_right();
+                src += 2;
+            } else if ((*(src+1) == tLT || *(src+1) == tLBrace)
+                    && *(src+2) == tRBrack) {
+                scan_left();
                 src += 2;
             } else {
                 begin_loop();
