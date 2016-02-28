@@ -1,3 +1,11 @@
+/*
+ * An on-calc BF compiler for TI-83+ series calculators.
+ *
+ * Copyright (C) Scott Morton 2016
+ *
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the MIT license.
+ */
 #include <string.h>
 #include "lib/c_ti83p.h"
 #include "header.h"
@@ -6,6 +14,7 @@
 #define PUSH(addr) (*(stack_ptr++) = (addr))
 #define POP() (*(--stack_ptr))
 
+/* opcodes */
 #define LD_HL 0x21
 #define INC_HL 0x23
 #define DEC_HL 0x2B
@@ -44,13 +53,32 @@ uint8_t *exec;
 __at APP_BACKUP_SCREEN uint8_t *stack[BUFFER_SIZE / sizeof(uint8_t*)];
 uint8_t **stack_ptr;
 
+/*
+ * The compiler is, in essence, a state machine. Many commands are not compiled
+ * at the time they are parsed, but instead change the state of the compiler,
+ * and then code is written to the output program at the next state transition.
+ *
+ * For example, when compiling the sequence ++++>, nothing is written when the
+ * +'s are read; when the > is reached, machine code is output to add 4 to the
+ * value at the memory pointer, but nothing will be written for the > until
+ * the next state transition.
+ *
+ * The correspondance between BF commands and compiler output is for the most
+ * part as would be expected: a series of +'s becomes an addition,
+ * [-] loads 0 in the current cell, and so on. One oddity is that a series of
+ * -'s does not result in a subtraction but an addition of the two's complement
+ * negative of the number of -'s.
+ */
+
 /* state variables */
-uint8_t delta = 0;
-uint16_t distance_right = 0;
-uint16_t distance_left = 0;
+uint8_t delta = 0; /* amount to add to the current cell */
+uint16_t distance_right = 0; /* number of cells to move to the right */
+uint16_t distance_left = 0; /* number of cells to move to the left */
+
 typedef enum {ADDING, LOADING, MOVING_LEFT, MOVING_RIGHT, NONE} State;
 State prog_state = NONE;
 
+/* Write the output for the current state, and reset all the state variables.*/
 void resolve_state()
 {
     switch (prog_state) {
@@ -83,8 +111,8 @@ void resolve_state()
         } else {
             APPEND_DST(OR_A);
             APPEND_DST(LD_DE_NN);
-            APPEND_DST(distance_left & 0x0F);
-            APPEND_DST(distance_left >> 4);
+            APPEND_DST(distance_left & 0x0F); /* lower nibble */
+            APPEND_DST(distance_left >> 4); /* higher nibble */
             APPEND_DST(EXTENDED_INSTR);
             APPEND_DST(SBC_HL_DE);
         }
@@ -107,6 +135,7 @@ void resolve_state()
     distance_right = 0;
 }
 
+/* carry out one + command */
 void increment()
 {
     if (prog_state != ADDING && prog_state != LOADING) {
@@ -116,6 +145,7 @@ void increment()
     delta++;
 }
 
+/* carry out one - command */
 void decrement()
 {
     if (prog_state != ADDING && prog_state != LOADING) {
@@ -125,6 +155,7 @@ void decrement()
     delta--;
 }
 
+/* carry out one < command */
 void move_left()
 {
     if (prog_state != MOVING_LEFT && prog_state != MOVING_RIGHT) {
@@ -144,6 +175,7 @@ void move_left()
     }
 }
 
+/* carry out one > command */
 void move_right()
 {
     if (prog_state != MOVING_LEFT && prog_state != MOVING_RIGHT) {
@@ -164,6 +196,7 @@ void move_right()
         distance_right++;
 }
 
+/* carry out one [ command */
 void begin_loop()
 {
     resolve_state();
@@ -176,6 +209,7 @@ void begin_loop()
 
 }
 
+/* carry out one ] command */
 void end_loop()
 {
     uint8_t *open;
@@ -191,6 +225,7 @@ void end_loop()
     *(open + 3) = jp_dist - 2; /* jump to just past the ] */
 }
 
+/* carry out one . command */
 void output()
 {
     resolve_state();
@@ -200,6 +235,7 @@ void output()
     APPEND_DST(PUT_C_2);
 }
 
+/* carry out one , command */
 void input()
 {
     /* , resets the value at this address, so discard any planned addition */
@@ -212,6 +248,7 @@ void input()
     APPEND_DST(LD_HL_A);
 }
 
+/* carry out one [-]/[+] command */
 void clear()
 {
     if (prog_state != ADDING && prog_state != LOADING)
@@ -221,6 +258,7 @@ void clear()
     delta = 0;
 }
 
+/* carry out one [<] command */
 void scan_left()
 {
     resolve_state();
@@ -235,6 +273,7 @@ void scan_left()
     APPEND_DST(INC_HL);
 }
 
+/* carry out one [>] command */
 void scan_right()
 {
     resolve_state();
@@ -308,7 +347,29 @@ int main()
             input();
         }
         src++;
+
+        if (dst > prog_buffer + sizeof(prog_buffer)) {
+            /* unlikely, but just in case */
+            CPutS("error: program too large");
+            CNewLine();
+            return 1;
+        } else if (stack_ptr < stack) {
+            CPutS("error: unmatched closing ]");
+            CNewLine();
+            return 1;
+        }
     }
+
+    if (stack_ptr > stack) {
+        CPutS("error: unmatched opening \xC1");
+        CNewLine();
+        return 1;
+    }
+
+    /*
+     * Create the output file and write the compiled code to it, along with
+     * the header and footer
+     */
     size = (dst - prog_buffer);
     exec = CCreateProtPrgm("BFDST", size + sizeof(header) + sizeof(footer));
     memcpy(exec, header, sizeof(header));
