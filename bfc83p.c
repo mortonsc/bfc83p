@@ -11,6 +11,8 @@
 #define INC_AT_HL 0x34
 #define DEC_AT_HL 0x35
 #define ADD_A_N 0xC6
+#define LD_A_N 0x3E
+#define LD_AT_HL_NN 0x36
 #define LD_DE_NN 0x11
 #define ADD_HL_DE 0x19
 #define EXTENDED_INSTR 0xED
@@ -59,7 +61,7 @@ uint8_t **stack_ptr;
 uint8_t delta = 0;
 uint16_t distance_right = 0;
 uint16_t distance_left = 0;
-typedef enum {ADDING, MOVING_LEFT, MOVING_RIGHT, NONE} State;
+typedef enum {ADDING, LOADING, MOVING_LEFT, MOVING_RIGHT, NONE} State;
 State prog_state = NONE;
 
 void resolve_state()
@@ -82,6 +84,10 @@ void resolve_state()
             APPEND_DST(delta);
             APPEND_DST(LD_HL_A);
         }
+        break;
+    case LOADING:
+        APPEND_DST(LD_AT_HL_NN);
+        APPEND_DST(delta);
         break;
     case MOVING_LEFT:
         if (distance_left <= 5) {
@@ -116,7 +122,7 @@ void resolve_state()
 
 void increment()
 {
-    if (prog_state != ADDING) {
+    if (prog_state != ADDING && prog_state != LOADING) {
         resolve_state();
         prog_state = ADDING;
     }
@@ -125,7 +131,7 @@ void increment()
 
 void decrement()
 {
-    if (prog_state != ADDING) {
+    if (prog_state != ADDING && prog_state != LOADING) {
         resolve_state();
         prog_state = ADDING;
     }
@@ -219,6 +225,15 @@ void input()
     APPEND_DST(LD_HL_A);
 }
 
+void clear()
+{
+    if (prog_state != ADDING && prog_state != LOADING)
+        resolve_state();
+
+    prog_state = LOADING;
+    delta = 0;
+}
+
 int main()
 {
     uint16_t size;
@@ -252,7 +267,12 @@ int main()
             move_left();
             break;
         case tLBrack:
-            begin_loop();
+            if ((*(src+1) == tSub || *(src+1) == tAdd) && *(src+2) == tRBrack) {
+                clear();
+                src += 2;
+            } else {
+                begin_loop();
+            }
             break;
         case tRBrack:
             end_loop();
