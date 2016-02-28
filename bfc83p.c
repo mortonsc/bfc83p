@@ -1,5 +1,6 @@
 #include <string.h>
 #include "lib/c_ti83p.h"
+#include "safe_header.h"
 
 #define APPEND_DST(c) (*(dst++) = (c))
 #define PUSH(addr) (*(stack_ptr++) = (addr))
@@ -11,12 +12,15 @@
 #define INC_AT_HL 0x34
 #define DEC_AT_HL 0x35
 #define LD_A_HL 0x7E
+#define LD_HL_A 0x77
 #define OR_A 0xB7
 #define JR_Z 0x28
 #define JR 0x18
 #define BCALL 0xEF
 #define PUT_C_1 0x04
 #define PUT_C_2 0x45
+#define GET_KEY_1 0x72
+#define GET_KEY_2 0x49
 #define RET 0xC9
 
 const uint8_t header[] =
@@ -63,8 +67,8 @@ int main()
     }
 
     dst = prog_buffer;
-    memcpy(dst, header, sizeof(header));
-    dst += sizeof(header);
+    /* memcpy(dst, header, sizeof(header)); */
+    /* dst += sizeof(header); */
 
     stack_ptr = stack;
 
@@ -105,13 +109,20 @@ int main()
             APPEND_DST(PUT_C_1);
             APPEND_DST(PUT_C_2);
             break;
+        case tComma:
+            APPEND_DST(BCALL);
+            APPEND_DST(GET_KEY_1);
+            APPEND_DST(GET_KEY_2);
+            APPEND_DST(LD_HL_A);
         }
         src++;
     }
     APPEND_DST(RET);
 
     size = (dst - prog_buffer);
-    exec = CCreateProtPrgm("BFDST", size);
+    exec = CCreateProtPrgm("BFDST", size + sizeof(safe_header));
+    memcpy(exec, safe_header, sizeof(safe_header));
+    exec += sizeof(safe_header);
     memcpy(exec, prog_buffer, size);
 
     return 0;
