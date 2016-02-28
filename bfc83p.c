@@ -13,6 +13,8 @@
 #define ADD_A_N 0xC6
 #define LD_DE_NN 0x11
 #define ADD_HL_DE 0x19
+#define EXTENDED_INSTR 0xED
+#define SBC_HL_DE 0x52
 #define LD_A_HL 0x7E
 #define LD_HL_A 0x77
 #define OR_A 0xB7
@@ -55,7 +57,8 @@ uint8_t **stack_ptr;
 
 /* state variables */
 uint8_t delta = 0;
-uint16_t distance = 0;
+uint16_t distance_right = 0;
+uint16_t distance_left = 0;
 typedef enum {ADDING, MOVING_LEFT, MOVING_RIGHT, NONE} State;
 State prog_state = NONE;
 
@@ -63,22 +66,42 @@ void resolve_state()
 {
     switch (prog_state) {
     case ADDING:
-        APPEND_DST(LD_A_HL);
-        APPEND_DST(ADD_A_N);
-        APPEND_DST(delta);
-        APPEND_DST(LD_HL_A);
+        if (delta == 1) {
+            APPEND_DST(INC_AT_HL);
+        } else if (delta == 2) {
+            APPEND_DST(INC_AT_HL);
+            APPEND_DST(INC_AT_HL);
+        } else if (delta == (uint8_t) -1) {
+            APPEND_DST(DEC_AT_HL);
+        } else if (delta == (uint8_t) -2) {
+            APPEND_DST(DEC_AT_HL);
+            APPEND_DST(DEC_AT_HL);
+        } else if (delta != 0) {
+            APPEND_DST(LD_A_HL);
+            APPEND_DST(ADD_A_N);
+            APPEND_DST(delta);
+            APPEND_DST(LD_HL_A);
+        }
         break;
     case MOVING_LEFT:
+        APPEND_DST(OR_A);
+        APPEND_DST(LD_DE_NN);
+        APPEND_DST(distance_left & 0x0F);
+        APPEND_DST(distance_left >> 4);
+        APPEND_DST(EXTENDED_INSTR);
+        APPEND_DST(SBC_HL_DE);
+        break;
     case MOVING_RIGHT:
         APPEND_DST(LD_DE_NN);
-        APPEND_DST(distance & 0x0F); /* lower nibble */
-        APPEND_DST(distance >> 4); /* higher nibble */
+        APPEND_DST(distance_right & 0x0F); /* lower nibble */
+        APPEND_DST(distance_right >> 4); /* higher nibble */
         APPEND_DST(ADD_HL_DE);
         break;
     }
     prog_state = NONE;
     delta = 0;
-    distance = 0;
+    distance_left = 0;
+    distance_right = 0;
 }
 
 void increment()
@@ -106,10 +129,16 @@ void move_left()
         prog_state = MOVING_LEFT;
     }
 
-    if (prog_state == MOVING_RIGHT && distance == 0)
-        prog_state = MOVING_LEFT;
-
-        distance += (uint16_t) -1;
+    if (prog_state == MOVING_RIGHT) {
+        if (distance_left > 0) {
+            distance_right--;
+        } else {
+            distance_left = 0;
+            prog_state = MOVING_LEFT;
+        }
+    } else {
+        distance_left++;
+    }
 }
 
 void move_right()
@@ -119,10 +148,17 @@ void move_right()
         prog_state = MOVING_RIGHT;
     }
 
-    if (prog_state == MOVING_LEFT && distance == 0)
-        prog_state = MOVING_RIGHT;
+    if (prog_state == MOVING_LEFT) {
+        if (distance_left > 0) {
+            distance_left--;
+        } else {
+            distance_right = 0;
+            prog_state = MOVING_RIGHT;
+        }
+    }
 
-        distance++;
+    if (prog_state == MOVING_RIGHT)
+        distance_right++;
 }
 
 void begin_loop()
@@ -139,10 +175,13 @@ void begin_loop()
 
 void end_loop()
 {
-    uint8_t *open = POP();
-    int8_t jp_dist = dst - open;
+    uint8_t *open;
+    int8_t jp_dist;
 
     resolve_state();
+
+    open = POP();
+    jp_dist = dst - open;
 
     APPEND_DST(JR);
     APPEND_DST(-(jp_dist+2)); /* jump back to start of loop */
