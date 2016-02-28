@@ -1,5 +1,6 @@
 #include <string.h>
 #include "lib/c_ti83p.h"
+#include "header.h"
 
 #define APPEND_DST(c) (*(dst++) = (c))
 #define PUSH(addr) (*(stack_ptr++) = (addr))
@@ -26,31 +27,12 @@
 #define PUT_C_2 0x45
 #define GET_KEY_1 0x72
 #define GET_KEY_2 0x49
-#define RET 0xC9
 
 /* extended (2-byte) opcodes */
 #define EXTENDED_INSTR 0xED
 #define SBC_HL_DE 0x52
 #define CPIR 0xB1
 #define CPDR 0xB9
-
-const uint8_t header[] =
-    {
-        t2ByteTok, tasmCmp,
-        0x21, 0x72, 0x98, /* ld hl,#appBackUpScreen */
-        0x01, 0x00, 0x03, /*ld bc,#buffer_size */
-    /* ZeroLoop: */
-        0x36, 0x00,       /*ld (hl),#0          */
-        0x23,             /*inc hl */
-        0x0B,             /*dec bc */
-        0x78,             /*ld a,b */
-        0xB7,             /*or a */
-        0x20, 0xF8,       /*jr nz,ZeroLoop */
-        0x79,             /*ld a,c */
-        0xB7,             /*or a */
-        0x20, 0xF4,       /*jr nz,ZeroLoop */
-        0x21, 0x72, 0x98 /* ld hl,#appBackUpScreen */
-    };
 
 uint8_t *src;
 uint8_t *src_end;
@@ -327,13 +309,13 @@ int main()
         }
         src++;
     }
-    APPEND_DST(RET);
-
     size = (dst - prog_buffer);
-    exec = CCreateProtPrgm("BFDST", size + sizeof(header));
+    exec = CCreateProtPrgm("BFDST", size + sizeof(header) + sizeof(footer));
     memcpy(exec, header, sizeof(header));
     exec += sizeof(header);
     memcpy(exec, prog_buffer, size);
+    exec += size;
+    memcpy(exec, footer, sizeof(footer));
 
     CPutS("compilation successful");
     CNewLine();
