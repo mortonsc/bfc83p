@@ -2,6 +2,7 @@ lib
 *.rel
 *.swp
 *.asm
+!output.asm
 *.lst
 *.sym
 *.lk
