@@ -105,22 +105,37 @@ void unload_reg_a()
 void resolve_addition()
 {
     /*
+     * For small delta, it's more efficient to repeatedly inc/dec rather than
+     * to add. At some of the marginal values, one method took one more byte
+     * but required one less clock cycle; in these cases I opted for brevity
+     * rather than speed.
+     *
      * If reg a is already loaded, it's faster to directly inc/dec a
-     * but if not, it's faster to inc/dec (hl) than to load it
+     * but if not, it's faster to inc/dec (hl) than to load it.
      */
-    const uint8_t inc_code = is_reg_a_loaded ? INC_A : INC_AT_HL;
-    const uint8_t dec_code = is_reg_a_loaded ? DEC_A : DEC_AT_HL;
-    if (delta == 1) {
-        APPEND_DST(inc_code);
-    } else if (delta == 2) {
-        APPEND_DST(inc_code);
-        APPEND_DST(inc_code);
-    } else if (delta == (uint8_t) -1) {
-        APPEND_DST(dec_code);
-    } else if (delta == (uint8_t) -2) {
-        APPEND_DST(dec_code);
-        APPEND_DST(dec_code);
-    } else if (delta != 0) {
+    if (is_reg_a_loaded) {
+        if (delta <= 3) {
+            while (delta--)
+                APPEND_DST(INC_A);
+            return;
+        } else if (delta >= 253) {
+            while (delta++)
+                APPEND_DST(DEC_A);
+            return;
+        }
+    } else {
+        if (delta <= 2) {
+            while (delta--)
+                APPEND_DST(INC_AT_HL);
+            return;
+        } else if (delta >= 254) {
+            while (delta++)
+                APPEND_DST(DEC_AT_HL);
+            return;
+        }
+    }
+
+    if (delta != 0) {
         load_reg_a();
         APPEND_DST(ADD_A_N);
         APPEND_DST(delta);
