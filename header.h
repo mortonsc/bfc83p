@@ -1,8 +1,18 @@
-#include "lib/c_ti83p.h"
+#ifndef _BFC_HEADER_H_
+#define _BFC_HEADER_H_ 1
 
+/*
+ * This is the code added to the beginning of every compiled BF program.
+ * It prepares the program's memory and sets up an interrupt to terminate
+ * the program in [ON] is pressed.
+ *
+ * The assembly source for this code is contained in output.asm and so isn't
+ * replicated here. The hex codes here were transcribed from the code listing
+ * of that file.
+ */
 const uint8_t header[] =
     {
-        t2ByteTok, tasmCmp,
+        0xBB, 0x6D,
 
         0x18, 0x18,
         0x00, 0x00,
@@ -38,9 +48,16 @@ const uint8_t header[] =
         0x21, 0x72, 0x98
     };
 
+/*
+ * The code added to the end of every compiled program. It disables the
+ * interrupt and returns. It consists entirely of the assembly commands
+ *      im 1
+ *      ret
+ */
 const uint8_t footer[] =
     {
         0xED, 0x56,
         0xC9
     };
 
+#endif /* _BFC_HEADER_H_ */
