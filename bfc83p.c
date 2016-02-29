@@ -287,11 +287,10 @@ void end_loop()
 void output()
 {
     /*
-     * load reg a before the addition is resolved--this provides a slight
-     * increase in speed if a small number is to be added or subtracted,
-     * as inc/dec a is faster than inc/dec (hl).
+     * Knowing in advance that we will need to load reg a allows us to make the
+     * addition or loading more efficient.
      */
-    if (prog_state == ADDING)
+    if (prog_state == ADDING || prog_state == LOADING)
         load_reg_a();
 
     resolve_state();
@@ -305,7 +304,7 @@ void output()
 void input()
 {
     /* , resets the value at this address, so discard any planned addition */
-    if (prog_state != ADDING)
+    if (prog_state != ADDING && prog_state != LOADING)
         resolve_state();
 
     APPEND_DST(BCALL);
