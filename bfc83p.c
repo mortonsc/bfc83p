@@ -7,6 +7,7 @@
  * under the terms of the MIT license.
  */
 #include <string.h>
+#include <stdbool.h>
 #include "lib/c_ti83p.h"
 #include "header.h"
 
@@ -21,8 +22,10 @@
 #define INC_AT_HL 0x34
 #define DEC_AT_HL 0x35
 #define ADD_A_N 0xC6
+#define INC_A 0x3C
+#define DEC_A 0x3D
 #define LD_A_N 0x3E
-#define LD_AT_HL_NN 0x36
+#define LD_AT_HL_N 0x36
 #define LD_BC_NN 0x01
 #define LD_DE_NN 0x11
 #define ADD_HL_DE 0x19
@@ -78,33 +81,70 @@ uint16_t distance_left = 0; /* number of cells to move to the left */
 typedef enum {ADDING, LOADING, MOVING_LEFT, MOVING_RIGHT, NONE} State;
 State prog_state = NONE;
 
+bool is_reg_a_loaded = false;
+
+
+/* ensure the a register contains the value under the mem ptr */
+void load_reg_a()
+{
+    if (!is_reg_a_loaded) {
+        APPEND_DST(LD_A_HL);
+        is_reg_a_loaded = true;
+    }
+}
+
+/* ensure that the cell under the mem ptr contains the value stored in a */
+void unload_reg_a()
+{
+    if (is_reg_a_loaded) {
+        APPEND_DST(LD_HL_A);
+        is_reg_a_loaded = false;
+    }
+}
+
+void resolve_addition()
+{
+    /*
+     * If reg a is already loaded, it's faster to directly inc/dec a
+     * but if not, it's faster to inc/dec (hl) than to load it
+     */
+    const uint8_t inc_code = is_reg_a_loaded ? INC_A : INC_AT_HL;
+    const uint8_t dec_code = is_reg_a_loaded ? DEC_A : DEC_AT_HL;
+    if (delta == 1) {
+        APPEND_DST(inc_code);
+    } else if (delta == 2) {
+        APPEND_DST(inc_code);
+        APPEND_DST(inc_code);
+    } else if (delta == (uint8_t) -1) {
+        APPEND_DST(dec_code);
+    } else if (delta == (uint8_t) -2) {
+        APPEND_DST(dec_code);
+        APPEND_DST(dec_code);
+    } else if (delta != 0) {
+        load_reg_a();
+        APPEND_DST(ADD_A_N);
+        APPEND_DST(delta);
+    }
+
+}
+
 /* Write the output for the current state, and reset all the state variables.*/
 void resolve_state()
 {
     switch (prog_state) {
     case ADDING:
-        if (delta == 1) {
-            APPEND_DST(INC_AT_HL);
-        } else if (delta == 2) {
-            APPEND_DST(INC_AT_HL);
-            APPEND_DST(INC_AT_HL);
-        } else if (delta == (uint8_t) -1) {
-            APPEND_DST(DEC_AT_HL);
-        } else if (delta == (uint8_t) -2) {
-            APPEND_DST(DEC_AT_HL);
-            APPEND_DST(DEC_AT_HL);
-        } else if (delta != 0) {
-            APPEND_DST(LD_A_HL);
-            APPEND_DST(ADD_A_N);
-            APPEND_DST(delta);
-            APPEND_DST(LD_HL_A);
-        }
+        resolve_addition();
         break;
     case LOADING:
-        APPEND_DST(LD_AT_HL_NN);
+        if (is_reg_a_loaded) {
+            APPEND_DST(LD_A_N);
+        } else {
+            APPEND_DST(LD_AT_HL_N);
+        }
         APPEND_DST(delta);
         break;
     case MOVING_LEFT:
+        unload_reg_a();
         if (distance_left <= 5) {
             while (distance_left--)
                 APPEND_DST(DEC_HL);
@@ -118,6 +158,7 @@ void resolve_state()
         }
         break;
     case MOVING_RIGHT:
+        unload_reg_a();
         if (distance_right <= 3) {
             while (distance_right--)
                 APPEND_DST(INC_HL);
@@ -201,6 +242,8 @@ void begin_loop()
 {
     resolve_state();
 
+    unload_reg_a();
+
     PUSH(dst);
     APPEND_DST(LD_A_HL);
     APPEND_DST(OR_A);
@@ -228,8 +271,16 @@ void end_loop()
 /* carry out one . command */
 void output()
 {
+    /*
+     * load reg a before the addition is resolved--this provides a slight
+     * increase in speed if a small number is to be added or subtracted,
+     * as inc/dec a is faster than inc/dec (hl).
+     */
+    if (prog_state == ADDING)
+        load_reg_a();
+
     resolve_state();
-    APPEND_DST(LD_A_HL);
+    load_reg_a();
     APPEND_DST(BCALL);
     APPEND_DST(PUT_C_1);
     APPEND_DST(PUT_C_2);
@@ -245,7 +296,7 @@ void input()
     APPEND_DST(BCALL);
     APPEND_DST(GET_KEY_1);
     APPEND_DST(GET_KEY_2);
-    APPEND_DST(LD_HL_A);
+    is_reg_a_loaded = true;
 }
 
 /* carry out one [-]/[+] command */
@@ -262,6 +313,7 @@ void clear()
 void scan_left()
 {
     resolve_state();
+    unload_reg_a();
 
     APPEND_DST(LD_BC_NN);
     APPEND_DST(0x00);
@@ -270,13 +322,15 @@ void scan_left()
     APPEND_DST(0x00);
     APPEND_DST(EXTENDED_INSTR);
     APPEND_DST(CPDR);
-    APPEND_DST(INC_HL);
+
+    move_right(); /* cpdr decrements hl once after the 0 cell is found */
 }
 
 /* carry out one [>] command */
 void scan_right()
 {
     resolve_state();
+    unload_reg_a();
 
     APPEND_DST(LD_BC_NN);
     APPEND_DST(0x00);
@@ -285,7 +339,8 @@ void scan_right()
     APPEND_DST(0x00);
     APPEND_DST(EXTENDED_INSTR);
     APPEND_DST(CPIR);
-    APPEND_DST(DEC_HL);
+
+    move_left(); /* cpir increments hl once after the 0 cell is found */
 }
 
 int main()
