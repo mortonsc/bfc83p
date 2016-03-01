@@ -262,7 +262,7 @@ void begin_loop()
     PUSH(dst);
     APPEND_DST(LD_A_HL);
     APPEND_DST(OR_A);
-    APPEND_DST(JR_Z); /* ret z */
+    APPEND_DST(JR_Z);
     APPEND_DST(0x00); /* will be filled in with the jump dist */
 
 }
@@ -441,6 +441,11 @@ int main()
      */
     size = (dst - prog_buffer);
     exec = CCreateProtPrgm("BFDST", size + sizeof(header) + sizeof(footer));
+    if (!exec) {
+        CPutS("error: not enough mem");
+        CNewLine();
+        return 1;
+    }
     memcpy(exec, header, sizeof(header));
     exec += sizeof(header);
     memcpy(exec, prog_buffer, size);
