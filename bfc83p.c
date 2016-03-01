@@ -220,7 +220,7 @@ void move_left()
     }
 
     if (prog_state == MOVING_RIGHT) {
-        if (distance_left > 0) {
+        if (distance_right > 0) {
             distance_right--;
         } else {
             distance_left = 0;
